@@ -34,7 +34,8 @@ import top.yogiczy.mytv.tv.sync.CloudSyncData
 import top.yogiczy.mytv.tv.ui.material.Snackbar
 import top.yogiczy.mytv.tv.ui.material.SnackbarType
 import top.yogiczy.mytv.tv.ui.utils.Configs
-import tv.danmaku.ijk.media.player.BuildConfig
+//import tv.danmaku.ijk.media.player.BuildConfig
+import top.yogiczy.mytv.tv.BuildConfig
 import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
