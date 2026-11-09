@@ -1,0 +1,83 @@
+name: Buildtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "输入版本号（格式：x.x.x，例如 1.2.3）"
+        required: true
+  push:
+    tags:
+      - "v*"  # 支持 Tag 触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: keystore
+    env:
+      KEYSTORE_PATH: tv/app/keystore.p12
+      KEYSTORE_TYPE: PKCS12
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: gradle
+
+    # 只有手动触发或打标签时，才需要解码签名
+    - name: 解码生成 p12
+      run: |
+        mkdir -p tv/app
+        echo "正在解码BASE64密钥..."
+        openssl base64 -d -A <<< "${{ secrets.KEYSTORE_BASE64 }}" > $KEYSTORE_PATH
+        if [ ! -s $KEYSTORE_PATH ]; then
+          echo "❌ 错误：keystore.p12 文件为空"
+          exit 1
+        fi
+        keytool -list -v \
+          -keystore $KEYSTORE_PATH \
+          -storepass $KEYSTORE_PASSWORD \
+          -storetype $KEYSTORE_TYPE || exit 1
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    # 去掉了 ./gradlew clean，提速！
+    - name: Build with Gradle
+      run: |
+        ./gradlew :tv:assembleRelease --stacktrace -PVERSION_NAME=${{ github.event.inputs.version || github.ref_name }}
+      env:
+        VERSION_NAME: ${{ github.event.inputs.version || github.ref_name }}
+        KEYSTORE: ${{ github.workspace }}/tv/app/keystore.p12
+        KEYSTORE_TYPE: ${{ env.KEYSTORE_TYPE }}
+        KEYSTORE_PASSWORD: ${{ env.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ env.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
+
+    - name: 上传 APK 到 Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: mytv-apk-${{ github.event.inputs.version || github.ref_name }}
+        path: tv/build/outputs/apk/original/release/*.apk
+
+    # 👇 下面这两个步骤加了条件判断：只有打标签（push tags）时才会执行
+    - name: 上传到 GitHub Release (仅限打Tag时)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: ncipollo/release-action@v1
+      with:
+        name: Release ${{ github.ref_name }}
+        tag: ${{ github.ref_name }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        artifacts: tv/build/outputs/apk/original/release/*.apk
+        allowUpdates: true
+        generateReleaseNotes: true
